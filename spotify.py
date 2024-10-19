@@ -1,79 +1,88 @@
 import base64
 import requests
-import webbrowser
-import json
-from urllib.parse import urlencode
-from flask import Flask, request, redirect
+import pandas as pd
+from datetime import datetime
+import os
 
-# Reemplaza estos valores con tus datos de Spotify for Developers
-CLIENT_ID = '737e719bb4c4413dab75709796eea4f5'     # Tu Client ID
-CLIENT_SECRET = '2257b35c9acb46ea817f4a99cf833a8c'  # Tu Client Secret
-REDIRECT_URI = 'http://localhost:5000/callback'     # Debe coincidir con lo configurado en Spotify Dashboard
-SCOPE = 'user-read-private user-read-recently-played playlist-read-private'  # Scopes (permisos)
-STATE = '34fFs29kd09'  # Cualquier valor único para asegurar la autenticidad de la solicitud
+# *Reemplaza estos valores con tus datos de Spotify for Developers*
+CLIENT_ID = '737e719bb4c4413dab75709796eea4f5'     # Aquí pones tu Client ID de Spotify
+CLIENT_SECRET = '2257b35c9acb46ea817f4a99cf833a8c'  # Aquí pones tu Client Secret de Spotify
 
-app = Flask(_name_)
-
-# Paso 1: Redirigir al usuario a la página de autorización de Spotify
-@app.route('/login')
-def login():
-    auth_url = 'https://accounts.spotify.com/authorize'
-    params = {
-        'client_id': CLIENT_ID,
-        'response_type': 'code',
-        'redirect_uri': REDIRECT_URI,
-        'scope': SCOPE,
-        'state': STATE
-    }
-    webbrowser.open(f"{auth_url}?{urlencode(params)}")
-    return 'Por favor, inicia sesión en Spotify.'
-
-# Paso 2: Recibir el código de autorización y solicitar el Access Token
-@app.route('/callback')
-def callback():
-    code = request.args.get('code')
-    token_url = 'https://accounts.spotify.com/api/token'
-    auth_str = f"{CLIENT_ID}:{CLIENT_SECRET}"
-    b64_auth_str = base64.b64encode(auth_str.encode()).decode()
+def get_token():
+    # URL de autenticación de Spotify (esto se queda igual)
+    auth_url = 'https://accounts.spotify.com/api/token'
+    
+    # Codificamos el Client ID y el Client Secret en formato base64
+    auth_header = base64.b64encode(f"{CLIENT_ID}:{CLIENT_SECRET}".encode()).decode()
 
     headers = {
-        'Authorization': f'Basic {b64_auth_str}',
-        'Content-Type': 'application/x-www-form-urlencoded'
+        'Authorization': f'Basic {auth_header}',
     }
-    
+
     data = {
-        'grant_type': 'authorization_code',
-        'code': code,
-        'redirect_uri': REDIRECT_URI
+        'grant_type': 'client_credentials'
     }
 
-    response = requests.post(token_url, headers=headers, data=data)
-    token_info = response.json()
-    access_token = token_info['access_token']
+    # Realizamos la solicitud para obtener el token
+    response = requests.post(auth_url, headers=headers, data=data)
+    response_data = response.json()
 
-    # Guardar el access token para usar en las próximas peticiones
-    return redirect(f"/get_user_info?access_token={access_token}")
+    # Devolvemos el token de acceso
+    return response_data['access_token']
 
-# Paso 3: Hacer una solicitud autenticada a la API de Spotify
-@app.route('/get_user_info')
-def get_user_info():
-    access_token = request.args.get('access_token')
+def get_artist_data(artist_id, token):
+    # Hacemos la solicitud para obtener los datos del artista
+    url = f"https://api.spotify.com/v1/artists/{artist_id}"
     headers = {
-        'Authorization': f'Bearer {access_token}'
+        'Authorization': f'Bearer {token}'  # Pasamos el token de acceso
     }
-    
-    # Obtener información básica del usuario
-    user_info_response = requests.get('https://api.spotify.com/v1/me', headers=headers)
-    user_info = user_info_response.json()
-    
-    # Obtener las playlists privadas del usuario
-    playlists_response = requests.get('https://api.spotify.com/v1/me/playlists', headers=headers)
-    playlists = playlists_response.json()
 
-    return json.dumps({
-        'user_info': user_info,
-        'playlists': playlists
-    }, indent=2)
+    # Obtenemos la respuesta de Spotify
+    response = requests.get(url, headers=headers)
+    artist_data = response.json()
 
-if _name_ == '_main_':
-    app.run(debug=True)
+    # Regresamos el nombre del artista, Popularity Score y seguidores
+    return artist_data['name'], artist_data['popularity'], artist_data['followers']['total']
+
+# *Reemplaza el artist_id con el ID del artista que quieres rastrear*
+artist_id = '2QpRYjtwNg9z6KwD4fhC5h'  # Aquí pones el ID del artista que deseas
+
+# Obtenemos el token de acceso
+token = get_token()
+
+# Obtenemos el nombre del artista, Popularity Score y seguidores
+artist_name, popularity_score, followers = get_artist_data(artist_id, token)
+
+# Imprimimos los datos obtenidos
+print(f"Artist: {artist_name}")
+print(f"Popularity Score: {popularity_score}")
+print(f"Followers: {followers}")
+
+# Función mejorada para almacenar los datos en un CSV
+def store_popularity_score(artist_id, artist_name, popularity_score, followers):
+    # Datos que se almacenarán en el CSV
+    data = {'artist_id': artist_id,
+            'artist_name': artist_name,
+            'popularity_score': popularity_score,
+            'followers': followers,
+            'date': datetime.now().strftime('%Y-%m-%d')}
+    
+    # Definir el nombre del archivo CSV
+    csv_file = 'popularity_scores.csv'
+
+    # Verificar si el archivo ya existe
+    file_exists = os.path.isfile(csv_file)
+
+    # Crear un DataFrame con los datos
+    df = pd.DataFrame([data])
+
+    # Guardar los datos en el archivo CSV
+    if not file_exists:
+        # Si el archivo no existe, crearlo con encabezados
+        df.to_csv(csv_file, mode='a', header=True, index=False)
+    else:
+        # Si el archivo ya existe, agregar los datos sin escribir el encabezado
+        df.to_csv(csv_file, mode='a', header=False, index=False)
+
+# Guardamos los resultados en un archivo CSV mejorado
+store_popularity_score(artist_id, artist_name, popularity_score, followers)
