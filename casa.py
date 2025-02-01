@@ -1,69 +1,72 @@
+import base64
 import requests
-from bs4 import BeautifulSoup
-import re
+import pandas as pd
+from datetime import datetime
+import os
 
-# Function to scrape Spotify artist page
-def get_spotify_data(spotify_url):
-    headers = {"User-Agent": "Mozilla/5.0"}
-    response = requests.get(spotify_url, headers=headers)
-    if response.status_code == 200:
-        soup = BeautifulSoup(response.text, "html.parser")
-        text = soup.get_text()
-        
-        # Extract Monthly Listeners
-        listeners_match = re.search(r"(\d[\d,.]*) monthly listeners", text)
-        monthly_listeners = listeners_match.group(1) if listeners_match else "Not Found"
-        
-        # Extract Popularity Score (Spotify doesn't show this directly)
-        popularity_score = "Requires API or deeper scraping"
-        
-        return {"Monthly Listeners": monthly_listeners, "Popularity Score": popularity_score}
+# Reemplaza estos valores con tus datos de Spotify for Developers
+CLIENT_ID = '737e719bb4c4413dab75709796eea4f5'     # Aquí pones tu Client ID de Spotify
+CLIENT_SECRET = '2257b35c9acb46ea817f4a99cf833a8c'  # Aquí pones tu Client Secret de Spotify
+
+def get_token():
+    """Obtiene un token de acceso desde la API de Spotify."""
+    auth_url = 'https://accounts.spotify.com/api/token'
+    auth_header = base64.b64encode(f"{CLIENT_ID}:{CLIENT_SECRET}".encode()).decode()
+
+    headers = {'Authorization': f'Basic {auth_header}'}
+    data = {'grant_type': 'client_credentials'}
+
+    response = requests.post(auth_url, headers=headers, data=data)
+    response_data = response.json()
+    
+    return response_data['access_token']
+
+def get_artist_data(artist_id, token):
+    """Obtiene el nombre, popularidad y seguidores de un artista de Spotify."""
+    url = f"https://api.spotify.com/v1/artists/{artist_id}"
+    headers = {'Authorization': f'Bearer {token}'}
+    
+    response = requests.get(url, headers=headers)
+    artist_data = response.json()
+
+    return {
+        'artist_name': artist_data['name'],
+        'popularity_score': artist_data['popularity'],
+        'followers': artist_data['followers']['total'],
+        'date': datetime.now().strftime('%Y-%m-%d')
+    }
+
+def store_popularity_scores(artists_data):
+    """Almacena los datos de los artistas en un archivo CSV."""
+    csv_file = 'popularity_scores.csv'
+    df = pd.DataFrame(artists_data)
+
+    if not os.path.isfile(csv_file):
+        df.to_csv(csv_file, mode='a', header=True, index=False)
     else:
-        return {"Error": "Failed to fetch page"}
+        df.to_csv(csv_file, mode='a', header=False, index=False)
 
-# Function to scrape Instagram followers
-def get_instagram_followers(instagram_url):
-    headers = {"User-Agent": "Mozilla/5.0"}
-    response = requests.get(instagram_url, headers=headers)
-    if response.status_code == 200:
-        soup = BeautifulSoup(response.text, "html.parser")
-        text = soup.get_text()
-        
-        # Extract followers count using regex
-        followers_match = re.search(r"(\d[\d,.]*) Followers", text)
-        followers = followers_match.group(1) if followers_match else "Not Found"
-        
-        return {"Instagram Followers": followers}
-    else:
-        return {"Error": "Failed to fetch page"}
+# Lista de IDs de artistas que deseas rastrear
+artist_ids = [
+    '2QpRYjtwNg9z6KwD4fhC5h',  # Casa 24
+    '56tisU5xMB4CYyzG99hyBN',  # Chef Lino
+    '5BsYYsSnFsE9SoovY7aQV0',  # PYRO
+    '2DqDBHhQzNE3KHZq6yKG96',  # bo.wlie
+    '4vYClJG7K1FGWMMalEW5Hg',  # Mango Blade
+    '3gXXs7vEDPmeJ2HAOCGi8e',  # ZACKO
+    '14UWYN8hKe7U5r0Vqe6ztL',  # pax
+    '7DFovnGo8GZX5PuEyXh6LV'   # ARANDA
+]
 
-# Function to scrape Discord invite page for member count
-def get_discord_members(discord_url):
-    headers = {"User-Agent": "Mozilla/5.0"}
-    response = requests.get(discord_url, headers=headers)
-    if response.status_code == 200:
-        soup = BeautifulSoup(response.text, "html.parser")
-        text = soup.get_text()
-        
-        # Extract Discord members
-        members_match = re.search(r"(\d[\d,.]*) Members", text)
-        members = members_match.group(1) if members_match else "Not Found"
-        
-        return {"Discord Members": members}
-    else:
-        return {"Error": "Failed to fetch page"}
+# Obtener token de Spotify
+token = get_token()
 
-# URLs
-spotify_url = "https://open.spotify.com/artist/2QpRYjtwNg9z6KwD4fhC5h"
-instagram_url = "https://www.instagram.com/casa24records/?hl=en"
-discord_url = "https://discord.gg/Y7C2uzmb"
+# Obtener datos de los artistas
+artists_data = [get_artist_data(artist_id, token) for artist_id in artist_ids]
 
-# Fetch data
-spotify_data = get_spotify_data(spotify_url)
-instagram_data = get_instagram_followers(instagram_url)
-discord_data = get_discord_members(discord_url)
+# Almacenar los datos en un archivo CSV
+store_popularity_scores(artists_data)
 
-# Display results
-print("Spotify Data:", spotify_data)
-print("Instagram Data:", instagram_data)
-print("Discord Data:", discord_data)
+# Imprimir los datos obtenidos
+for artist in artists_data:
+    print(f"Artist: {artist['artist_name']}, Popularity: {artist['popularity_score']}, Followers: {artist['followers']}")
